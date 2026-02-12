@@ -189,7 +189,7 @@ def fetch_steam_hidden_gems():
     headers = {"User-Agent": "Mozilla/5.0"}
     
     page = 0
-    while len(games) < 20 and page < 20: 
+    while len(games) < 30 and page < 20: 
         status_text.text(f"🔍 {page + 1}페이지 탐색 중... (확보: {len(games)}개)")
         params = {"query": "", "start": page*25, "count": 25, "dynamic_data": "", "sort_by": "Released_DESC", "category1": "998", "infinite": "1", "cc": CC_CODE}
         
