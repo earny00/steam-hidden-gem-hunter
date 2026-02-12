@@ -12,23 +12,49 @@ from datetime import datetime, timedelta
 # --- [중요] 페이지 설정 ---
 st.set_page_config(page_title="Steam Hunter", page_icon="🕵️", layout="wide")
 
-# --- 설정 ---
-CACHE_FILE = "today_games.json"
-USD_RATE = 1450.0
+# --- 국가별 설정 (확장 가능) ---
+# 각 국가별 예산과 통화 기호를 정의합니다.
+REGION_CONFIG = {
+    "Korea (KRW)": {"code": "kr", "symbol": "₩", "budget": 100000, "flag": "🇰🇷"},
+    "USA (USD)":   {"code": "us", "symbol": "$", "budget": 65,    "flag": "🇺🇸"},
+    "Japan (JPY)": {"code": "jp", "symbol": "¥", "budget": 10000,  "flag": "🇯🇵"},
+}
 
-# --- 커스텀 CSS (전체 스타일링) ---
-st.markdown("""
+# --- 사이드바: 국가 선택 ---
+with st.sidebar:
+    st.header("🌐 지역 설정")
+    # 기본값을 한국으로 설정
+    selected_region = st.selectbox(
+        "접속 국가를 선택하세요",
+        list(REGION_CONFIG.keys()),
+        index=0 
+    )
+    
+    # 선택된 국가 정보 가져오기
+    current_config = REGION_CONFIG[selected_region]
+    CC_CODE = current_config["code"]
+    CURRENCY = current_config["symbol"]
+    START_BUDGET = current_config["budget"]
+    
+    # 캐시 파일도 국가별로 분리 (충돌 방지)
+    CACHE_FILE = f"today_games_{CC_CODE}.json"
+    
+    st.caption(f"현재 스토어: {selected_region} ({current_config['flag']})")
+    st.caption("※ 국가 변경 시 데이터가 새로고침됩니다.")
+
+# --- 커스텀 CSS (가격 강조 & 상단바 복구) ---
+st.markdown(f"""
 <style>
-    /* 1. 메인 게임 가격 박스 */
-    .big-price-container {
+    /* 1. 가격 박스 스타일 */
+    .big-price-container {{
         display: flex;
         justify-content: center;
         align-items: center;
         height: 100%;
         width: 100%;
         min-height: 100px;
-    }
-    .big-price {
+    }}
+    .big-price {{
         font-size: 2.0rem !important;
         font-weight: 800 !important;
         color: #4CAF50 !important;
@@ -38,10 +64,10 @@ st.markdown("""
         border-radius: 12px;
         border: 2px solid #4CAF50;
         box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-    }
+    }}
     
-    /* 2. 상단바 잔액 박스 (HTML/CSS) */
-    .top-balance-box {
+    /* 2. [복구] 상단바 잔액 박스 스타일 */
+    .top-balance-box {{
         background-color: #1b2838;
         border: 2px solid #4CAF50; /* 돈은 초록색 */
         border-radius: 10px;
@@ -55,35 +81,35 @@ st.markdown("""
         flex-direction: column;
         justify-content: center;
         align-items: center;
-        height: 100px; /* 높이 고정 (타이머와 맞춤) */
-    }
-    .top-label {
+        height: 100px; /* 타이머와 높이 맞춤 */
+    }}
+    .top-label {{
         font-size: 0.9rem;
         color: #b0b0b0;
         font-weight: normal;
         margin-bottom: 2px;
-    }
+    }}
     
-    /* 3. 게임 제목 */
-    .game-title {
+    /* 3. 게임 제목 (가독성) */
+    .game-title {{
         font-size: 1.8rem !important;
         font-weight: 800 !important;
         margin-bottom: 8px !important;
         line-height: 1.2 !important;
-        color: #1a1a1a !important; 
-    }
+        color: var(--text-color) !important; 
+    }}
 
     /* 4. 인벤토리 스타일 */
-    [data-testid="column"]:nth-of-type(2) [data-testid="stVerticalBlockBorderWrapper"] > div {
+    [data-testid="column"]:nth-of-type(2) [data-testid="stVerticalBlockBorderWrapper"] > div {{
         background-color: #1b2838 !important; 
         border: 1px solid #66c0f4 !important; 
         border-radius: 8px !important;
-    }
+    }}
     [data-testid="column"]:nth-of-type(2) [data-testid="stVerticalBlockBorderWrapper"] p,
     [data-testid="column"]:nth-of-type(2) [data-testid="stVerticalBlockBorderWrapper"] span,
-    [data-testid="column"]:nth-of-type(2) [data-testid="stVerticalBlockBorderWrapper"] div {
+    [data-testid="column"]:nth-of-type(2) [data-testid="stVerticalBlockBorderWrapper"] div {{
         color: #e0e0e0 !important;
-    }
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -92,6 +118,22 @@ if "gallery_open" not in st.session_state:
     st.session_state.gallery_open = False
 if "gallery_idx" not in st.session_state:
     st.session_state.gallery_idx = 0
+
+# 국가 변경 감지 및 초기화 (last_region이 없거나 바뀌었으면 리셋)
+if "last_region" not in st.session_state:
+    st.session_state.last_region = CC_CODE
+
+if st.session_state.last_region != CC_CODE:
+    st.session_state.money = START_BUDGET
+    st.session_state.inventory = []
+    st.session_state.game_idx = 0
+    st.session_state.start_time = None
+    st.session_state.game_over = False
+    st.session_state.last_region = CC_CODE
+    # 캐시된 게임 목록도 초기화하여 다시 로드 유도
+    if "games" in st.session_state:
+        del st.session_state["games"]
+    st.rerun()
 
 # --- 갤러리 다이얼로그 ---
 @st.dialog("📸 스크린샷 뷰어", width="large")
@@ -133,15 +175,17 @@ def parse_date(date_str):
 
 def parse_price(price_text):
     if "Free" in price_text or "무료" in price_text:
-        return 0.0, "$0.00"
+        return 0.0, f"{CURRENCY}0" 
+    
+    # 숫자와 점(.)만 남기고 제거 -> 순수 숫자값 추출
     clean_num_str = re.sub(r'[^\d.]', '', price_text)
-    if not clean_num_str: return 0.0, "$0.00"
+    if not clean_num_str: return 0.0, f"{CURRENCY}0"
+    
     val = float(clean_num_str)
-    if '₩' in price_text or '원' in price_text or val > 200:
-        usd_val = val / USD_RATE 
-        return round(usd_val, 2), f"${usd_val:.2f}"
-    else:
-        return val, f"${val:.2f}"
+    
+    # [수정] 환율 계산 제거: 이제 현지 통화 그대로 사용
+    # price_text에는 이미 해당 국가의 통화 기호가 붙어 있음
+    return val, price_text
 
 def get_steam_tier_info(rating):
     if rating >= 95: return "압도적으로 긍정적 💖", "blue", "#c5e8ff" 
@@ -151,17 +195,22 @@ def get_steam_tier_info(rating):
     elif rating >= 20: return "대체로 부정적 👎", "red", "#fff1f0" 
     else: return "매우/압도적으로 부정적 💔", "red", "#ffa39e" 
 
-def get_score_evaluation(score):
-    if score >= 450: return "👑 **게이브 뉴웰의 후계자** (완벽합니다! 당신의 지갑은 명작으로 가득 찼습니다.)"
-    elif score >= 350: return "🍷 **게임 소믈리에** (훌륭한 안목입니다. 숨은 보석을 제대로 알아보시는군요.)"
-    elif score >= 250: return "🧢 **스팀 고인물** (나쁘지 않습니다. 세일 기간에 활약할 인재입니다.)"
-    elif score >= 150: return "😐 **찍먹의 달인** (평범한 결과네요. 조금 더 과감한 투자가 필요합니다.)"
+def get_score_evaluation(score, budget):
+    # [수정] 점수 평가 기준을 예산 대비 효율(비율)로 변경
+    # 점수가 예산의 몇 배인지 계산 (예: 50달러로 250점 -> 5배)
+    ratio = score / budget if budget > 0 else 0
+    
+    if ratio >= 8: return "👑 **게이브 뉴웰의 후계자** (완벽합니다! 당신의 지갑은 명작으로 가득 찼습니다.)"
+    elif ratio >= 6: return "🍷 **게임 소믈리에** (훌륭한 안목입니다. 숨은 보석을 제대로 알아보시는군요.)"
+    elif ratio >= 4: return "🧢 **스팀 고인물** (나쁘지 않습니다. 세일 기간에 활약할 인재입니다.)"
+    elif ratio >= 2: return "😐 **찍먹의 달인** (평범한 결과네요. 조금 더 과감한 투자가 필요합니다.)"
     else: return "💸 **환불 원정대** (지갑을 지키신 건가요? 게임을 좀 더 사보세요!)"
 
 # --- 상세정보 가져오기 ---
 def get_game_details(app_id):
     url = "https://store.steampowered.com/api/appdetails"
-    params = {"appids": app_id, "l": "korean"} 
+    # [수정] 상세 정보 요청 시에도 국가 코드(cc) 적용
+    params = {"appids": app_id, "l": "korean", "cc": CC_CODE} 
     desc_text = "설명 없음"
     tags_text = "태그 정보 없음"
     screenshots = [] 
@@ -188,16 +237,23 @@ def fetch_steam_hidden_gems():
     games = []
     today = datetime.now()
     status_text = st.empty()
-    status_text.info(f"🕵️ 스팀 탐색 시작... ({today.strftime('%Y-%m-%d')} 기준)")
+    status_text.info(f"🕵️ 스팀 탐색 시작... ({today.strftime('%Y-%m-%d')} 기준, 지역: {CC_CODE.upper()})")
 
     base_url = "https://store.steampowered.com/search/results/"
     cookies = {'Steam_Language': 'korean', 'birthtime': '0', 'lastagecheckage': '1-January-1990'}
     headers = {"User-Agent": "Mozilla/5.0"}
     
     page = 0
-    while len(games) < 20 and page < 20: 
+    while len(games) < 30 and page < 20: 
         status_text.text(f"🔍 {page + 1}페이지 탐색 중... (확보: {len(games)}개)")
-        params = {"query": "", "start": page * 25, "count": 25, "dynamic_data": "", "sort_by": "Released_DESC", "category1": "998", "infinite": "1"}
+        
+        # [핵심 수정] cc 파라미터로 선택된 국가 코드 적용
+        params = {
+            "query": "", "start": page * 25, "count": 25, "dynamic_data": "", 
+            "sort_by": "Released_DESC", "category1": "998", "infinite": "1",
+            "cc": CC_CODE 
+        }
+        
         try:
             r = requests.get(base_url, params=params, headers=headers, cookies=cookies)
             data = r.json()
@@ -229,24 +285,34 @@ def fetch_steam_hidden_gems():
                 review_count = int(match.group(1).replace(',', ''))
                 
                 if 10 <= review_count <= 2000:
+                    # [이미지] 깨짐 방지를 위해 크롤링된 썸네일 사용
                     img_src = row.select_one('img').get('src', '')
+                    # 고해상도(srcset)가 있으면 가져오기 시도
+                    img_srcset = row.select_one('img').get('srcset', '')
+                    if img_srcset:
+                        parts = img_srcset.split(',')
+                        if len(parts) > 1:
+                            img_src = parts[-1].strip().split(' ')[0]
+
                     price_elem = row.select_one('.discount_final_price') or row.select_one('.search_price')
-                    raw_price = price_elem.text.strip() if price_elem else "$0.00"
+                    raw_price = price_elem.text.strip() if price_elem else f"{CURRENCY}0"
+                    
                     price_val, price_str = parse_price(raw_price)
                     if price_val == 0: continue
+                    
                     rating_match = re.search(r'(\d+)%', tooltip)
                     rating = int(rating_match.group(1)) if rating_match else 0
                     
                     print(f"  ★ [확보] {title}")
                     desc_text, tags_text, screenshots = get_game_details(app_id)
                     
-                    # 가장 안전한 header.jpg
+                    # [이미지 전략] header.jpg (460x215)가 가장 안전함
                     header_img = f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{app_id}/header.jpg"
                     
                     games.append({
                         "title": title, "price_str": price_str, "price_val": price_val, 
-                        "img": header_img, 
-                        "thumb": img_src,
+                        "img": header_img, # 큰 이미지
+                        "thumb": img_src,  # 리스트용 썸네일
                         "reviews": review_count, "rating": rating, 
                         "desc": f"{date_text} 출시 ({days_diff}일 전)", 
                         "full_desc": desc_text, "tags": tags_text,
@@ -266,19 +332,21 @@ def load_or_fetch_data():
         try:
             with open(CACHE_FILE, "r", encoding="utf-8") as f:
                 cached_data = json.load(f)
+            # 날짜와 데이터 존재 여부 확인
             if cached_data.get("date") == today_str and cached_data.get("games"):
                 return cached_data.get("games", []), True
         except: pass
     games = fetch_steam_hidden_gems()
     if games:
-        save_data = {"date": today_str, "games": games}
+        # 캐시 파일에 지역 정보도 저장 (필요 시 사용)
+        save_data = {"date": today_str, "games": games, "region": CC_CODE}
         with open(CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(save_data, f, ensure_ascii=False, indent=4)
     return games, False
 
 # --- 초기화 ---
 if "games" not in st.session_state:
-    with st.spinner("🕵️ 스팀 차트를 분석하는 중..."):
+    with st.spinner(f"🕵️ {selected_region} 스토어를 탐색 중입니다..."):
         loaded_games, is_cached = load_or_fetch_data()
         random.shuffle(loaded_games)
         st.session_state.games = loaded_games
@@ -287,7 +355,7 @@ if "games" not in st.session_state:
             st.stop()
 
 if "money" not in st.session_state:
-    st.session_state.money = 50.0
+    st.session_state.money = START_BUDGET
     st.session_state.inventory = []
     st.session_state.game_idx = 0
     st.session_state.start_time = None
@@ -296,8 +364,10 @@ if "money" not in st.session_state:
 # --- UI 메인 ---
 if st.session_state.start_time is None:
     st.title("🕵️ Steam Hidden Gem Hunter")
-    st.markdown("### $50로 3분 안에 최고의 인디 게임을 찾아라!")
-    st.info(f"🎮 분석된 후보 게임: {len(st.session_state.games)}개")
+    # 예산 표시 포맷팅 (원화는 콤마, 달러는 콤마)
+    budget_display = f"{st.session_state.money:,.0f}" if CC_CODE in ['kr', 'jp'] else f"{st.session_state.money:.2f}"
+    st.markdown(f"### {CURRENCY}{budget_display}로 3분 안에 최고의 인디 게임을 찾아라!")
+    st.info(f"🎮 분석된 후보 게임: {len(st.session_state.games)}개 (지역: {CC_CODE.upper()})")
     if st.button("🚀 사냥 시작", type="primary", width="stretch"):
         st.session_state.start_time = time.time()
         st.rerun()
@@ -334,8 +404,9 @@ else:
                 g['bg_hex'] = bg_hex
                 tier_groups[color].append(g)
 
-            st.subheader(f"🏆 최종 점수: :rainbow[{total_score:.1f}점]")
-            st.info(get_score_evaluation(total_score))
+            st.subheader(f"🏆 최종 점수: :rainbow[{total_score:,.0f}점]")
+            # [수정] 칭호 평가는 (총점 / 예산) 비율로 계산하여 화폐 단위 문제 해결
+            st.info(get_score_evaluation(total_score, START_BUDGET))
             st.divider()
 
             for color in ["blue", "green", "orange", "red"]:
@@ -343,15 +414,16 @@ else:
                 if games_in_tier:
                     st.markdown(f"### :{color}[{tier_titles[color]}] ({len(games_in_tier)}개)")
                     for g in games_in_tier:
-                        thumb_img = g.get('thumb', g.get('img', ''))
+                        # 안전한 이미지 사용
+                        safe_img = g.get('img', '')
                         html_card = f"""
                         <div style="background-color: {g['bg_hex']}; padding: 15px; border-radius: 10px; margin-bottom: 10px; border: 1px solid #ddd; color: #333;">
                             <div style="display: flex; align-items: center;">
-                                <img src="{thumb_img}" style="width: 150px; height: auto; border-radius: 5px; margin-right: 15px; object-fit: cover;">
+                                <img src="{safe_img}" style="width: 150px; height: auto; border-radius: 5px; margin-right: 15px; object-fit: cover;">
                                 <div style="flex-grow: 1;">
                                     <h3 style="margin: 0 0 5px 0; font-size: 1.2rem; color: #000;">{g['title']}</h3>
                                     <p style="margin: 0; font-weight: bold; font-size: 1rem;">
-                                        💵 {g['price_str']} | ⭐ {g['rating']}% | 🏆 {g['calculated_score']:.1f}점
+                                        💵 {g['price_str']} | ⭐ {g['rating']}% | 🏆 {g['calculated_score']:,.0f}점
                                     </p>
                                     <p style="margin: 5px 0 0 0; font-size: 0.85rem; color: #555;">
                                         {g['desc']}
@@ -366,7 +438,7 @@ else:
         st.divider()
         c1, c2 = st.columns(2)
         if c1.button("🔄 다시 하기", width="stretch"):
-            st.session_state.money = 50.0
+            st.session_state.money = START_BUDGET
             st.session_state.inventory = []
             st.session_state.game_idx = 0
             st.session_state.start_time = None
@@ -380,7 +452,7 @@ else:
             
     # --- [게임 진행 화면] ---
     else:
-        # 상단 HUD 레이아웃
+        # 상단바 레이아웃
         c1, c2, c3 = st.columns([1, 1, 1])
         
         with c1:
@@ -399,13 +471,13 @@ else:
                     text-align: center;
                     color: #ff4b4b;
                     font-weight: 800;
-                    font-size: 28px; /* 1.8rem과 유사 */
+                    font-size: 28px;
                     box-shadow: 0 2px 5px rgba(0,0,0,0.3);
                     display: flex;
                     flex-direction: column;
                     justify-content: center;
                     align-items: center;
-                    height: 96px; /* Streamlit markdown 박스와 높이 맞춤 */
+                    height: 96px; 
                     box-sizing: border-box;
                 }}
                 .top-label {{
@@ -440,17 +512,21 @@ else:
             components.html(timer_html, height=100)
         
         with c2:
-            # 잔액 표시 (HTML Box)
+            # [복구] 잔액 표시 (HTML Box 사용)
+            # 한국/일본은 소수점 제거, 미국은 2자리 유지
+            money_val = st.session_state.money
+            money_fmt = f"{money_val:,.0f}" if CC_CODE in ['kr', 'jp'] else f"{money_val:.2f}"
+            money_display = f"{CURRENCY}{money_fmt}"
+            
             balance_html = f"""
             <div class='top-balance-box'>
                 <div class='top-label'>💰 현재 잔액</div>
-                <div>${st.session_state.money:.2f}</div>
+                <div>{money_display}</div>
             </div>
             """
             st.markdown(balance_html, unsafe_allow_html=True)
             
         with c3:
-            # 버튼 높이를 맞추기 위해 여백 추가 hack
             st.write("") 
             st.write("")
             if st.button("🏳️ 조기 종료", width="stretch"):
@@ -470,6 +546,7 @@ else:
                 for idx, item in enumerate(st.session_state.inventory):
                     with st.container(border=True):
                         st.markdown(f"<div style='color: #66c0f4; font-weight: bold; margin-bottom: 5px;'>{item['title']}</div>", unsafe_allow_html=True)
+                        # 안전하게 썸네일 사용
                         thumb_img = item.get('thumb', item.get('img', ''))
                         st.image(thumb_img, width="stretch")
                         if st.button("반품", key=f"ret_{idx}", width="stretch"):
